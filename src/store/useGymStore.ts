@@ -618,13 +618,18 @@ export const useGymStore = create<GymStore>()(
     {
       name: 'gymverse-state',
       storage: createJSONStorage(() => localStorage),
-      onRehydrateStorage: () => (state) => {
-        if (state) {
-          state.setHasHydrated(true);
-          if (state.activeProgram && state.activeProgram.workouts.length !== state.profile.frequency) {
+      onRehydrateStorage: (state) => {
+        const setHydrated = state?.setHasHydrated;
+        return (state, error) => {
+          if (state?.setHasHydrated) {
+            state.setHasHydrated(true);
+          } else if (setHydrated) {
+            setHydrated(true);
+          }
+          if (state?.activeProgram && state.activeProgram.workouts.length !== state.profile.frequency) {
             state.generateProgram();
           }
-        }
+        };
       },
     }
   )

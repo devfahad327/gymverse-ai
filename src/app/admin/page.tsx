@@ -11,6 +11,9 @@ import {
 } from '@/data/customExercises';
 import { useGymStore } from '@/store/useGymStore';
 import { getExerciseGif, getExerciseImage } from '@/data/exerciseImages';
+import { getFirebase } from '@/lib/firebase';
+
+const ADMIN_EMAIL = 'sheikh.fahad327@gmail.com';
 
 const categories = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms', 'Abs', 'Legs', 'Glutes', 'Calves', 'Neck', 'Cardio', 'Mobility'];
 const equipments = ['Barbell', 'Dumbbells', 'Cable', 'Machine', 'Bodyweight', 'Kettlebell', 'Bands', 'Full Gym'];
@@ -74,7 +77,14 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
             <LogIn size={14} className="inline mr-1.5" /> Sign In
           </button>
         </form>
-        <p className="text-zinc-600 text-[10px] mt-4 text-center">Default PIN: <code className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">admin</code></p>
+        <div className="mt-4 space-y-2">
+          <p className="text-zinc-600 text-[10px] text-center">Default PIN: <code className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">admin</code></p>
+          <p className="text-zinc-600 text-[10px] text-center">
+            Or{' '}
+            <a href="/" className="text-emerald-400 hover:text-emerald-300 underline">sign in with admin email</a>
+            {' '}on the main page.
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -375,6 +385,18 @@ export default function AdminPage() {
     if (authenticated) setExercises(getAllExercises());
   }, [authenticated]);
 
+  useEffect(() => {
+    const { auth } = getFirebase();
+    if (!auth) return;
+    import('firebase/auth').then(({ onAuthStateChanged }) => {
+      onAuthStateChanged(auth, (user) => {
+        if (user && user.email?.toLowerCase() === ADMIN_EMAIL) {
+          setAuthenticated(true);
+        }
+      });
+    });
+  }, []);
+
   function refresh() {
     setExercises(getAllExercises());
     useGymStore.getState().setCustomExercises(getCustomExercises());
@@ -493,7 +515,11 @@ export default function AdminPage() {
               <Lock size={12} className="inline mr-1" /> PIN
             </button>
             <button
-              onClick={() => setAuthenticated(false)}
+              onClick={() => {
+                setAuthenticated(false);
+                const { auth } = getFirebase();
+                if (auth) auth.signOut();
+              }}
               className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs transition-all cursor-pointer"
             >
               <LogOut size={12} className="inline mr-1" /> Sign Out
