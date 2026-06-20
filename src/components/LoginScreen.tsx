@@ -10,7 +10,7 @@ export const LoginScreen: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    login({ name: name.trim(), email: email.trim() });
+    login({ name: name.trim(), email: email.trim(), uid: '' });
   };
 
   return (

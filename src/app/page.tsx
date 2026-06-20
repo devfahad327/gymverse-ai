@@ -8,12 +8,12 @@ import { ExerciseLibrary } from '@/components/ExerciseLibrary';
 import { AICoach } from '@/components/AICoach';
 import { ProgressCharts } from '@/components/ProgressCharts';
 import { ProfileEditor } from '@/components/ProfileEditor';
-import { LoginScreen } from '@/components/LoginScreen';
+import { AuthScreen } from '@/components/AuthScreen';
 import { ExerciseVisual } from '@/components/ExerciseVisual';
 import { Card } from '@/components/Card';
 import {
   Dumbbell, BookOpen, Bot, BarChart3, Menu,
-  Play, Clock, Zap, Award, User, LogOut, Trash2, Shield
+  Play, Clock, Zap, Award, User, LogOut, Trash2
 } from 'lucide-react';
 
 type Tab = 'workout' | 'library' | 'coach' | 'progress' | 'profile';
@@ -236,7 +236,7 @@ export default function Home() {
 
   // Login gate
   if (!isLoggedIn) {
-    return <LoginScreen />;
+    return <AuthScreen />;
   }
 
   // Onboarding flow
@@ -304,17 +304,11 @@ export default function Home() {
         </nav>
 
         {/* Bottom */}
-        <div className="p-3 border-t border-white/5 space-y-1">
+        <div className="p-3 border-t border-white/5">
           <div className="flex items-center gap-3 px-3 py-2.5 text-zinc-500 text-xs">
             <Award size={14} className="text-amber-500" />
             <span>GymVerse v0.1</span>
           </div>
-          <a
-            href="/admin"
-            className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs text-zinc-600 hover:text-emerald-400 hover:bg-white/5 transition-all"
-          >
-            <Shield size={14} /> Admin Panel
-          </a>
         </div>
       </aside>
 

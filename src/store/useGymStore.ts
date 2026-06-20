@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { generateExerciseLibrary, Exercise } from '@/data/exercises';
+import { getFirebase } from '@/lib/firebase';
 
 // --- TYPES ---
 export interface UserProfile {
@@ -86,7 +87,7 @@ export interface Program {
 interface GymStore {
   // State
   isLoggedIn: boolean;
-  loggedInUser: { name: string; email: string } | null;
+  loggedInUser: { name: string; email: string; uid: string } | null;
   profile: UserProfile;
   activeProgram: Program | null;
   activeWorkout: WorkoutSession | null;
@@ -99,7 +100,7 @@ interface GymStore {
   hasHydrated: boolean;
 
   // Setters & Actions
-  login: (user: { name: string; email: string }) => void;
+  login: (user: { name: string; email: string; uid: string }) => void;
   logout: () => void;
   setProfile: (profile: Partial<UserProfile>) => void;
   setOnboarded: (val: boolean) => void;
@@ -179,7 +180,11 @@ export const useGymStore = create<GymStore>()(
       hasHydrated: false,
 
       login: (user) => set({ isLoggedIn: true, loggedInUser: user }),
-      logout: () => set({ isLoggedIn: false, loggedInUser: null }),
+      logout: () => {
+        set({ isLoggedIn: false, loggedInUser: null });
+        const { auth } = getFirebase();
+        if (auth) auth.signOut();
+      },
       setProfile: (newProfile) => {
         const state = get();
         const shouldRegenerate =
@@ -204,493 +209,132 @@ export const useGymStore = create<GymStore>()(
         const level = profile.experienceLevel;
         const freq = profile.frequency;
         const env = profile.environment;
-
-        let name = '';
-        let splitName = '';
-        let description = '';
-        let workouts: WorkoutSession[] = [];
+        const goals = profile.goals;
 
         const allExercises = [...generateExerciseLibrary(), ...get().customExercises];
-        const getExerciseByName = (n: string): Exercise => {
-          return allExercises.find(e => e.name.toLowerCase() === n.toLowerCase()) || allExercises[0];
+
+        const pick = (cats: string[], count: number, exclude?: string[]): Exercise[] => {
+          const pool = allExercises.filter(e =>
+            cats.includes(e.category) &&
+            (!exclude || !exclude.includes(e.name))
+          );
+          const shuffled = [...pool].sort(() => Math.random() - 0.5);
+          return shuffled.slice(0, count);
         };
 
-        const mapToWorkoutExercise = (name: string, targetSets: number, targetReps: string): WorkoutExercise => {
-          const ex = getExerciseByName(name);
-          return {
-            id: ex.id,
-            name: ex.name,
-            category: ex.category,
-            youtubeId: ex.youtubeId,
-            targetSets,
-            targetReps,
-            sets: Array.from({ length: targetSets }, () => ({
-              weight: 0,
-              reps: parseInt(targetReps) || 10,
-              completed: false,
-            })),
-          };
-        };
+        const makeEx = (ex: Exercise, targetSets: number, targetReps: string): WorkoutExercise => ({
+          id: `${ex.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: ex.name,
+          category: ex.category,
+          youtubeId: ex.youtubeId,
+          targetSets,
+          targetReps,
+          sets: Array.from({ length: targetSets }, () => ({
+            weight: 0,
+            reps: parseInt(targetReps) || 10,
+            completed: false,
+          })),
+        });
 
-        // --- BEGINNER / NOVICE ---
-        if (level === 'Beginner' || level === 'Novice') {
-          if (freq <= 3) {
-            splitName = 'Full Body';
-            name = 'GymVerse Foundation Full Body';
-            description = 'A full body split optimized for beginners to master form, build base strength, and establish a gym habit.';
-            workouts = [
-              {
-                id: 'fb-a', name: 'Full Body A (Squat Focus)',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Back Squat', 3, '8-10'),
-                  mapToWorkoutExercise('Barbell Bench Press', 3, '8-10'),
-                  mapToWorkoutExercise('Bent-Over Barbell Row', 3, '8-10'),
-                  mapToWorkoutExercise('Dumbbell Lateral Raise', 2, '12-15'),
-                  mapToWorkoutExercise('Barbell Bicep Curl', 2, '10-12'),
-                  mapToWorkoutExercise('Kneeling Cable Crunch', 2, '15'),
-                ]
-              },
-              {
-                id: 'fb-b', name: 'Full Body B (Deadlift Focus)',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Deadlift', 3, '5'),
-                  mapToWorkoutExercise('Barbell Overhead Press', 3, '8-10'),
-                  mapToWorkoutExercise('Pull-Up', 3, 'Max'),
-                  mapToWorkoutExercise('Dumbbell Romanian Deadlift', 2, '10-12'),
-                  mapToWorkoutExercise('Cable Tricep Pushdown', 2, '10-12'),
-                  mapToWorkoutExercise('Deep Squat Hold (Decompression)', 1, '1 min'),
-                ]
-              }
-            ];
-          } else if (freq === 4) {
-            splitName = 'Upper Lower';
-            name = 'GymVerse Starter Upper/Lower';
-            description = 'A 4-day split separating upper and lower body to increase focus and recover efficiently.';
-            workouts = [
-              {
-                id: 'ul-upper-a', name: 'Upper Body A',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Bench Press', 3, '8-10'),
-                  mapToWorkoutExercise('Bent-Over Barbell Row', 3, '8-10'),
-                  mapToWorkoutExercise('Barbell Overhead Press', 3, '8-10'),
-                  mapToWorkoutExercise('Pull-Up', 2, 'Max'),
-                  mapToWorkoutExercise('Barbell Bicep Curl', 2, '10-12'),
-                  mapToWorkoutExercise('Cable Tricep Pushdown', 2, '10-12'),
-                ]
-              },
-              {
-                id: 'ul-lower-a', name: 'Lower Body A',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Back Squat', 3, '8-10'),
-                  mapToWorkoutExercise('Dumbbell Romanian Deadlift', 3, '10-12'),
-                  mapToWorkoutExercise('Barbell Hip Thrust', 2, '10-12'),
-                  mapToWorkoutExercise('Standing Calf Raise', 3, '12-15'),
-                  mapToWorkoutExercise('Kneeling Cable Crunch', 2, '15'),
-                ]
-              }
-            ];
-          } else {
-            // 5 or 6 days — Upper/Lower Push/Pull to avoid boredom
-            splitName = 'Upper Lower Push Pull';
-            name = 'GymVerse 5-Day Full Body Mix';
-            description = 'A 5-day rotation mixing upper, lower, push, and pull days to keep workouts fresh while building consistent habits.';
-            workouts = [
-              {
-                id: 'beg-upper', name: 'Upper Body Strength',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Bench Press', 3, '8-10'),
-                  mapToWorkoutExercise('Bent-Over Barbell Row', 3, '8-10'),
-                  mapToWorkoutExercise('Incline Dumbbell Press', 2, '10-12'),
-                  mapToWorkoutExercise('Dumbbell Lateral Raise', 2, '12-15'),
-                  mapToWorkoutExercise('Barbell Bicep Curl', 2, '10-12'),
-                  mapToWorkoutExercise('Cable Tricep Pushdown', 2, '10-12'),
-                ]
-              },
-              {
-                id: 'beg-lower', name: 'Lower Body Strength',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Back Squat', 3, '8-10'),
-                  mapToWorkoutExercise('Dumbbell Romanian Deadlift', 3, '10-12'),
-                  mapToWorkoutExercise('Walking Lunges', 2, '10-12'),
-                  mapToWorkoutExercise('Standing Calf Raise', 3, '12-15'),
-                  mapToWorkoutExercise('Kneeling Cable Crunch', 2, '15'),
-                ]
-              },
-              {
-                id: 'beg-push', name: 'Push Day (Chest, Shoulders, Triceps)',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Overhead Press', 3, '8-10'),
-                  mapToWorkoutExercise('Incline Dumbbell Press', 3, '8-12'),
-                  mapToWorkoutExercise('Standing Cable Fly', 2, '12-15'),
-                  mapToWorkoutExercise('Dumbbell Lateral Raise', 2, '12-15'),
-                  mapToWorkoutExercise('EZ-Bar Skull Crusher', 2, '10-12'),
-                ]
-              },
-              {
-                id: 'beg-pull', name: 'Pull Day (Back, Biceps)',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Deadlift', 3, '5'),
-                  mapToWorkoutExercise('Pull-Up', 3, 'Max'),
-                  mapToWorkoutExercise('Bent-Over Barbell Row', 3, '8-10'),
-                  mapToWorkoutExercise('Incline Dumbbell Bicep Curl', 2, '10-12'),
-                  mapToWorkoutExercise('Barbell Wrist Curl', 2, '15'),
-                ]
-              },
-              {
-                id: 'beg-full', name: 'Full Body Finisher',
-                exercises: [
-                  mapToWorkoutExercise('Goblet Squat', 3, '10-12'),
-                  mapToWorkoutExercise('Incline Dumbbell Press', 3, '10-12'),
-                  mapToWorkoutExercise('Single-Arm Dumbbell Row', 3, '10-12'),
-                  mapToWorkoutExercise('Dumbbell Lateral Raise', 2, '12-15'),
-                  mapToWorkoutExercise('Kneeling Cable Crunch', 2, '15'),
-                ]
-              }
-            ];
+        const isStrength = goals.some(g => ['Gain Strength', 'Powerlifting'].includes(g));
+        const isHypertrophy = goals.some(g => ['Build Muscle', 'Bodybuilding', 'Body Recomposition'].includes(g));
+        const isFatLoss = goals.some(g => ['Lose Fat', 'General Fitness'].includes(g));
+
+        const compoundSets = isStrength ? 4 : isHypertrophy ? 3 : 3;
+        const accessorySets = isStrength ? 3 : isHypertrophy ? 3 : 2;
+        const compoundReps = isStrength ? '5-8' : isHypertrophy ? '8-12' : '10-15';
+        const accessoryReps = isStrength ? '8-10' : isHypertrophy ? '10-15' : '12-15';
+
+        const levelMod = level === 'Advanced' ? 1 : level === 'Intermediate' ? 0 : -1;
+        const baseSets = compoundSets + levelMod;
+        const baseAccessorySets = accessorySets + levelMod;
+
+        const upperCats = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms'];
+        const lowerCats = ['Legs', 'Glutes', 'Calves'];
+        const pushCats = ['Chest', 'Shoulders', 'Triceps'];
+        const pullCats = ['Back', 'Biceps', 'Forearms'];
+        const coreCats = ['Abs'];
+
+        const dayTemplates: { id: string; name: string; cats: string[]; exCount: number; isCompound: boolean }[] = [];
+
+        if (freq <= 3) {
+          // Full body each day with different emphasis
+          dayTemplates.push(
+            { id: 'fb-a', name: 'Full Body A (Strength Focus)', cats: [...upperCats, ...lowerCats], exCount: 6, isCompound: true },
+            { id: 'fb-b', name: 'Full Body B (Hypertrophy Focus)', cats: [...upperCats, ...lowerCats], exCount: 6, isCompound: false },
+          );
+          if (freq >= 3) {
+            dayTemplates.push(
+              { id: 'fb-c', name: 'Full Body C (Conditioning Focus)', cats: [...upperCats, ...lowerCats, ...coreCats], exCount: 6, isCompound: false },
+            );
           }
-
-        // --- INTERMEDIATE ---
-        } else if (level === 'Intermediate') {
-          if (freq <= 4) {
-            splitName = 'Upper Lower';
-            name = 'GymVerse Power-Hypertrophy Split';
-            description = 'A 4-day schedule alternating Heavy Power Days and Higher-Rep Hypertrophy Days for balanced strength and muscle gain.';
-            workouts = [
-              {
-                id: 'ph-power-up', name: 'Power Upper Body',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Bench Press', 4, '5'),
-                  mapToWorkoutExercise('Bent-Over Barbell Row', 4, '5'),
-                  mapToWorkoutExercise('Barbell Overhead Press', 3, '6'),
-                  mapToWorkoutExercise('Pull-Up', 3, 'Weighted'),
-                  mapToWorkoutExercise('Barbell Bicep Curl', 3, '8'),
-                ]
-              },
-              {
-                id: 'ph-power-low', name: 'Power Lower Body',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Back Squat', 4, '5'),
-                  mapToWorkoutExercise('Barbell Deadlift', 3, '5'),
-                  mapToWorkoutExercise('Barbell Hip Thrust', 3, '8'),
-                  mapToWorkoutExercise('Standing Calf Raise', 4, '10'),
-                ]
-              }
-            ];
-          } else if (freq === 5) {
-            splitName = 'PPLUL (Push Pull Legs Upper Lower)';
-            name = 'GymVerse PPLUL 5-Day Split';
-            description = 'A scientifically-proven 5-day rotation hitting each muscle group twice per week with balanced push, pull, legs, upper, and lower sessions.';
-            workouts = [
-              {
-                id: 'pplul-push', name: 'Push Day (Chest, Shoulders, Triceps)',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Bench Press', 4, '6-8'),
-                  mapToWorkoutExercise('Incline Dumbbell Press', 3, '8-12'),
-                  mapToWorkoutExercise('Barbell Overhead Press', 3, '8-10'),
-                  mapToWorkoutExercise('Dumbbell Lateral Raise', 4, '12-15'),
-                  mapToWorkoutExercise('Standing Cable Fly', 3, '12-15'),
-                  mapToWorkoutExercise('EZ-Bar Skull Crusher', 3, '10-12'),
-                  mapToWorkoutExercise('Cable Tricep Pushdown', 3, '12-15'),
-                ]
-              },
-              {
-                id: 'pplul-pull', name: 'Pull Day (Back, Biceps)',
-                exercises: [
-                  mapToWorkoutExercise('Bent-Over Barbell Row', 4, '6-8'),
-                  mapToWorkoutExercise('Pull-Up', 4, 'Max'),
-                  mapToWorkoutExercise('Seated Cable Row', 3, '10-12'),
-                  mapToWorkoutExercise('Face Pulls', 3, '12-15'),
-                  mapToWorkoutExercise('Incline Dumbbell Bicep Curl', 3, '10-12'),
-                  mapToWorkoutExercise('Barbell Bicep Curl', 3, '8-10'),
-                ]
-              },
-              {
-                id: 'pplul-legs', name: 'Legs & Core Day',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Back Squat', 4, '6-8'),
-                  mapToWorkoutExercise('Dumbbell Romanian Deadlift', 3, '8-10'),
-                  mapToWorkoutExercise('Barbell Hip Thrust', 3, '10-12'),
-                  mapToWorkoutExercise('Walking Lunges', 3, '10-12'),
-                  mapToWorkoutExercise('Standing Calf Raise', 4, '12-15'),
-                  mapToWorkoutExercise('Kneeling Cable Crunch', 3, '15'),
-                ]
-              },
-              {
-                id: 'pplul-upper', name: 'Upper Body Hypertrophy',
-                exercises: [
-                  mapToWorkoutExercise('Incline Dumbbell Press', 4, '8-12'),
-                  mapToWorkoutExercise('Bent-Over Barbell Row', 4, '8-12'),
-                  mapToWorkoutExercise('Dumbbell Lateral Raise', 3, '12-15'),
-                  mapToWorkoutExercise('Cable Tricep Pushdown', 3, '10-12'),
-                  mapToWorkoutExercise('Barbell Bicep Curl', 3, '10-12'),
-                ]
-              },
-              {
-                id: 'pplul-lower', name: 'Lower Body Power',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Deadlift', 4, '5'),
-                  mapToWorkoutExercise('Barbell Back Squat', 4, '6-8'),
-                  mapToWorkoutExercise('Dumbbell Romanian Deadlift', 3, '8-10'),
-                  mapToWorkoutExercise('Standing Calf Raise', 4, '12-15'),
-                  mapToWorkoutExercise('Kneeling Cable Crunch', 3, '15'),
-                ]
-              }
-            ];
-          } else {
-            // 6 days
-            splitName = 'Push Pull Legs';
-            name = 'GymVerse Intermediate PPL (6-Day)';
-            description = 'A classic high-frequency 6-day Push-Pull-Legs program focused on high hypertrophy volume and progressive overload. Run each workout twice per week.';
-            workouts = [
-              {
-                id: 'ppl-push', name: 'Push Day (Chest, Shoulders & Triceps)',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Bench Press', 4, '6-8'),
-                  mapToWorkoutExercise('Incline Dumbbell Press', 3, '8-12'),
-                  mapToWorkoutExercise('Barbell Overhead Press', 3, '8-10'),
-                  mapToWorkoutExercise('Dumbbell Lateral Raise', 4, '12-15'),
-                  mapToWorkoutExercise('Standing Cable Fly', 3, '12-15'),
-                  mapToWorkoutExercise('EZ-Bar Skull Crusher', 3, '10-12'),
-                  mapToWorkoutExercise('Cable Tricep Pushdown', 3, '12-15'),
-                ]
-              },
-              {
-                id: 'ppl-pull', name: 'Pull Day (Back, Rear Delts & Biceps)',
-                exercises: [
-                  mapToWorkoutExercise('Bent-Over Barbell Row', 4, '6-8'),
-                  mapToWorkoutExercise('Pull-Up', 4, 'Max'),
-                  mapToWorkoutExercise('Seated Cable Row', 3, '10-12'),
-                  mapToWorkoutExercise('Face Pulls', 3, '12-15'),
-                  mapToWorkoutExercise('Incline Dumbbell Bicep Curl', 3, '10-12'),
-                  mapToWorkoutExercise('Barbell Bicep Curl', 3, '8-10'),
-                  mapToWorkoutExercise('Barbell Wrist Curl', 2, '15'),
-                ]
-              },
-              {
-                id: 'ppl-legs', name: 'Legs & Core Day',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Back Squat', 4, '6-8'),
-                  mapToWorkoutExercise('Dumbbell Romanian Deadlift', 3, '8-10'),
-                  mapToWorkoutExercise('Barbell Hip Thrust', 3, '10-12'),
-                  mapToWorkoutExercise('Walking Lunges', 3, '10-12'),
-                  mapToWorkoutExercise('Standing Calf Raise', 4, '12-15'),
-                  mapToWorkoutExercise('Kneeling Cable Crunch', 3, '15'),
-                ]
-              }
-            ];
-          }
-
-        // --- ADVANCED ---
+        } else if (freq === 4) {
+          dayTemplates.push(
+            { id: 'ul-up-a', name: 'Upper Body Strength', cats: upperCats, exCount: 6, isCompound: true },
+            { id: 'ul-low-a', name: 'Lower Body Power', cats: lowerCats, exCount: 5, isCompound: true },
+            { id: 'ul-up-b', name: 'Upper Body Hypertrophy', cats: upperCats, exCount: 6, isCompound: false },
+            { id: 'ul-low-b', name: 'Lower Body Endurance', cats: [...lowerCats, ...coreCats], exCount: 5, isCompound: false },
+          );
+        } else if (freq === 5) {
+          dayTemplates.push(
+            { id: 'ppl-push', name: 'Push Day (Chest, Shoulders, Triceps)', cats: pushCats, exCount: 5, isCompound: true },
+            { id: 'ppl-pull', name: 'Pull Day (Back, Biceps, Forearms)', cats: pullCats, exCount: 5, isCompound: true },
+            { id: 'ppl-legs', name: 'Legs & Core Day', cats: [...lowerCats, ...coreCats], exCount: 5, isCompound: true },
+            { id: 'upper-hyper', name: 'Upper Body Specialization', cats: upperCats, exCount: 5, isCompound: false },
+            { id: 'lower-power', name: 'Lower Body Power', cats: lowerCats, exCount: 4, isCompound: true },
+          );
         } else {
-          if (freq <= 4) {
-            splitName = 'Powerbuilding';
-            name = 'GymVerse Elite Powerbuilding';
-            description = 'An advanced periodized structure implementing strength peaking, deload phases, and high-intensity RPE targets.';
-            workouts = [
-              {
-                id: 'elite-peak', name: 'Heavy Peaking Day (RPE 9-10)',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Back Squat', 5, '3-5 (RPE 9)'),
-                  mapToWorkoutExercise('Barbell Bench Press', 5, '3-5 (RPE 9)'),
-                  mapToWorkoutExercise('Barbell Deadlift', 4, '2-4 (RPE 9)'),
-                  mapToWorkoutExercise('Barbell Overhead Press', 3, '5 (RPE 8.5)'),
-                  mapToWorkoutExercise('Barbell Hip Thrust', 3, '6 (RPE 9)'),
-                ]
-              },
-              {
-                id: 'elite-hyper', name: 'Accessory Hypertrophy (Volume)',
-                exercises: [
-                  mapToWorkoutExercise('Incline Dumbbell Press', 4, '10-12'),
-                  mapToWorkoutExercise('Bent-Over Barbell Row', 4, '10-12'),
-                  mapToWorkoutExercise('Dumbbell Lateral Raise', 4, '15'),
-                  mapToWorkoutExercise('Incline Dumbbell Bicep Curl', 3, '12'),
-                  mapToWorkoutExercise('EZ-Bar Skull Crusher', 3, '12'),
-                ]
-              }
-            ];
-          } else {
-            // 5 or 6 days
-            splitName = 'PPL + Upper Lower';
-            name = 'GymVerse Elite 5/6-Day Split';
-            description = 'An advanced 5-day rotation combining strength peaking with hypertrophy specialization for maximum stimulus-to-fatigue ratio.';
-            workouts = [
-              {
-                id: 'adv-heavy', name: 'Heavy Compound Day',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Back Squat', 5, '3 (RPE 9)'),
-                  mapToWorkoutExercise('Barbell Bench Press', 5, '3 (RPE 9)'),
-                  mapToWorkoutExercise('Bent-Over Barbell Row', 4, '5 (RPE 8)'),
-                  mapToWorkoutExercise('Barbell Overhead Press', 3, '5 (RPE 8.5)'),
-                ]
-              },
-              {
-                id: 'adv-hyper-up', name: 'Upper Body Hypertrophy',
-                exercises: [
-                  mapToWorkoutExercise('Incline Dumbbell Press', 4, '10-12'),
-                  mapToWorkoutExercise('Seated Cable Row', 4, '10-12'),
-                  mapToWorkoutExercise('Dumbbell Lateral Raise', 4, '12-15'),
-                  mapToWorkoutExercise('Cable Tricep Pushdown', 3, '12-15'),
-                  mapToWorkoutExercise('Barbell Bicep Curl', 3, '10-12'),
-                ]
-              },
-              {
-                id: 'adv-legs', name: 'Legs & Posterior Chain',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Deadlift', 4, '3-5 (RPE 9)'),
-                  mapToWorkoutExercise('Barbell Back Squat', 4, '6-8'),
-                  mapToWorkoutExercise('Dumbbell Romanian Deadlift', 3, '8-10'),
-                  mapToWorkoutExercise('Walking Lunges', 3, '10-12'),
-                  mapToWorkoutExercise('Standing Calf Raise', 4, '12-15'),
-                  mapToWorkoutExercise('Kneeling Cable Crunch', 3, '15'),
-                ]
-              },
-              {
-                id: 'adv-push', name: 'Push Specialization',
-                exercises: [
-                  mapToWorkoutExercise('Barbell Bench Press', 4, '6-8'),
-                  mapToWorkoutExercise('Incline Dumbbell Press', 3, '8-12'),
-                  mapToWorkoutExercise('Barbell Overhead Press', 3, '8-10'),
-                  mapToWorkoutExercise('Standing Cable Fly', 3, '12-15'),
-                  mapToWorkoutExercise('EZ-Bar Skull Crusher', 3, '10-12'),
-                  mapToWorkoutExercise('Cable Tricep Pushdown', 3, '12-15'),
-                ]
-              },
-              {
-                id: 'adv-pull', name: 'Pull Specialization',
-                exercises: [
-                  mapToWorkoutExercise('Pull-Up', 4, 'Max'),
-                  mapToWorkoutExercise('Bent-Over Barbell Row', 4, '8-10'),
-                  mapToWorkoutExercise('Face Pulls', 3, '12-15'),
-                  mapToWorkoutExercise('Incline Dumbbell Bicep Curl', 3, '10-12'),
-                  mapToWorkoutExercise('Barbell Bicep Curl', 3, '8-10'),
-                  mapToWorkoutExercise('Barbell Wrist Curl', 2, '15'),
-                ]
-              }
-            ];
-          }
+          // 6 days
+          dayTemplates.push(
+            { id: 'push-1', name: 'Push Day', cats: pushCats, exCount: 5, isCompound: true },
+            { id: 'pull-1', name: 'Pull Day', cats: pullCats, exCount: 5, isCompound: true },
+            { id: 'legs-1', name: 'Legs Day', cats: [...lowerCats, ...coreCats], exCount: 5, isCompound: true },
+            { id: 'push-2', name: 'Push (Volume)', cats: pushCats, exCount: 5, isCompound: false },
+            { id: 'pull-2', name: 'Pull (Volume)', cats: pullCats, exCount: 5, isCompound: false },
+            { id: 'legs-2', name: 'Legs & Core', cats: [...lowerCats, ...coreCats], exCount: 5, isCompound: false },
+          );
         }
 
-        // Ensure workouts array matches the requested frequency
-        if (workouts.length > freq) {
-          workouts = workouts.slice(0, freq);
-        } else if (workouts.length < freq) {
-          const original = [...workouts];
-          while (workouts.length < freq) {
-            const src = original[workouts.length % original.length];
-            workouts.push({
-              ...src,
-              id: `${src.id}-alt-${workouts.length}`,
-              name: `${src.name} (Day ${workouts.length + 1})`,
-              exercises: src.exercises.map(ex => ({ ...ex, sets: ex.sets.map(s => ({ ...s })) })),
-            });
-          }
-        }
+        const splitNames: Record<number, string> = {
+          2: 'Full Body', 3: 'Full Body', 4: 'Upper Lower',
+          5: 'Push Pull Legs Upper Lower', 6: 'Push Pull Legs',
+        };
 
-        // Adjust for Dumbbell only / Bodyweight only environment
-        if (env === 'Dumbbells Only') {
-          const dbNameMap: Record<string, string> = {
-            'Barbell Back Squat': 'Dumbbell Bulgarian Split Squat',
-            'Barbell Bench Press': 'Incline Dumbbell Press',
-            'Barbell Deadlift': 'Dumbbell Romanian Deadlift',
-            'Barbell Overhead Press': 'Seated Dumbbell Press',
-            'Barbell Bicep Curl': 'Dumbbell Bicep Curl',
-            'Bent-Over Barbell Row': 'Single-Arm Dumbbell Row',
-            'Barbell Hip Thrust': 'Dumbbell Romanian Deadlift',
-            'Barbell Wrist Curl': 'Hammer Wrist Curl',
-            'Cable Tricep Pushdown': 'Tricep Overhead Extension (Dumbbell)',
-            'EZ-Bar Skull Crusher': 'Dumbbell Skull Crusher',
-            'Pull-Up': 'Bent-Over Barbell Row',
-            'Standing Cable Fly': 'Standing Cable Fly',
-            'Standing Calf Raise': 'Dumbbell Calf Raise',
-            'Kneeling Cable Crunch': 'Decline Sit-up',
-            'Walking Lunges': 'Dumbbell Lunges',
-            'Seated Cable Row': 'Single-Arm Dumbbell Row',
-            'Face Pulls': 'Dumbbell Lateral Raise',
-            'Goblet Squat': 'Goblet Squat',
-            'Dumbbell Bench Press': 'Dumbbell Bench Press',
-            'Dumbbell Row': 'Single-Arm Dumbbell Row',
-          };
-          workouts.forEach(wo => {
-            wo.exercises = wo.exercises.map(ex => {
-              const replacement = dbNameMap[ex.name];
-              return replacement ? mapToWorkoutExercise(replacement, ex.targetSets, ex.targetReps) : ex;
-            });
+        const programNames: Record<string, Record<number, string>> = {
+          Beginner: { 2: 'Foundation Full Body', 3: 'Foundation Full Body', 4: 'Starter Upper/Lower', 5: '5-Day Hybrid', 6: '6-Day Foundation' },
+          Novice: { 2: 'Novice Full Body', 3: 'Novice Full Body', 4: 'Novice Upper/Lower', 5: 'Novice 5-Day', 6: 'Novice 6-Day' },
+          Intermediate: { 2: 'Power Hypertrophy', 3: 'Power Hypertrophy', 4: 'Power Upper/Lower', 5: 'PPLUL Split', 6: 'PPL 6-Day' },
+          Advanced: { 2: 'Elite Powerbuilding', 3: 'Elite Powerbuilding', 4: 'Elite Upper/Lower', 5: 'Elite 5-Day', 6: 'Elite 6-Day' },
+        };
+
+        const splitName = splitNames[freq] || 'Custom Split';
+        const name = `GymVerse ${programNames[level]?.[freq] || 'Custom'} (${splitName})`;
+        const description = `A ${freq}-day program tailored for ${level.toLowerCase()} using ${env.toLowerCase()}. ` +
+          `Goal: ${goals.join(', ')}. Exercises are dynamically selected to match your equipment and experience level.`;
+
+        const workouts: WorkoutSession[] = dayTemplates.slice(0, freq).map((tmpl) => {
+          const compoundCount = Math.min(2, Math.ceil(tmpl.exCount * 0.4));
+          const accessoryCount = tmpl.exCount - compoundCount;
+
+          const compoundCats = tmpl.cats.filter(c => !['Biceps', 'Triceps', 'Forearms', 'Calves', 'Abs'].includes(c));
+          const accessoryCats = tmpl.cats;
+
+          const compounds = tmpl.isCompound ?
+            pick(compoundCats.length ? compoundCats : tmpl.cats, compoundCount) :
+            [];
+
+          const usedNames = compounds.map(e => e.name);
+          const accessories = pick(accessoryCats, accessoryCount, usedNames);
+
+          const exercises = [...compounds, ...accessories].map((ex, i) => {
+            const isCompound = i < compounds.length;
+            const sets = tmpl.isCompound && isCompound ? Math.max(2, baseSets) : Math.max(2, baseAccessorySets);
+            const reps = tmpl.isCompound && isCompound ? compoundReps : accessoryReps;
+            return makeEx(ex, sets, reps);
           });
-        } else if (env === 'Home Gym') {
-          const hgNameMap: Record<string, string> = {
-            'Barbell Back Squat': 'Dumbbell Bulgarian Split Squat',
-            'Barbell Bench Press': 'Dumbbell Bench Press',
-            'Barbell Deadlift': 'Dumbbell Romanian Deadlift',
-            'Barbell Overhead Press': 'Seated Dumbbell Press',
-            'Barbell Bicep Curl': 'Dumbbell Bicep Curl',
-            'Bent-Over Barbell Row': 'Single-Arm Dumbbell Row',
-            'Barbell Hip Thrust': 'Dumbbell Romanian Deadlift',
-            'Barbell Wrist Curl': 'Hammer Wrist Curl',
-            'Cable Tricep Pushdown': 'Tricep Overhead Extension (Dumbbell)',
-            'EZ-Bar Skull Crusher': 'Dumbbell Skull Crusher',
-            'Pull-Up': 'Pull-Up',
-            'Standing Cable Fly': 'Dumbbell Bench Press',
-            'Standing Calf Raise': 'Standing Calf Raise',
-            'Kneeling Cable Crunch': 'Decline Sit-up',
-            'Walking Lunges': 'Dumbbell Lunges',
-            'Seated Cable Row': 'Single-Arm Dumbbell Row',
-            'Face Pulls': 'Dumbbell Lateral Raise',
-            'Goblet Squat': 'Goblet Squat',
-            'Dumbbell Bench Press': 'Dumbbell Bench Press',
-            'Dumbbell Row': 'Single-Arm Dumbbell Row',
-            'Incline Dumbbell Press': 'Incline Dumbbell Press',
-            'Barbell Row': 'Single-Arm Dumbbell Row',
-          };
-          workouts.forEach(wo => {
-            wo.exercises = wo.exercises.map(ex => {
-              const replacement = hgNameMap[ex.name];
-              return replacement ? mapToWorkoutExercise(replacement, ex.targetSets, ex.targetReps) : ex;
-            });
-          });
-        } else if (env === 'Bodyweight Only') {
-          const bwNameMap: Record<string, string> = {
-            'Barbell Back Squat': 'Pistol Squat',
-            'Barbell Bench Press': 'Push-Up',
-            'Barbell Deadlift': 'Glute Bridge',
-            'Barbell Overhead Press': 'Pike Push-ups',
-            'Barbell Bicep Curl': 'Pull-Up',
-            'Bent-Over Barbell Row': 'Pull-Up',
-            'Barbell Hip Thrust': 'Glute Bridge',
-            'Barbell Wrist Curl': 'Dead Hangs',
-            'Cable Tricep Pushdown': 'Diamond Push-ups',
-            'EZ-Bar Skull Crusher': 'Diamond Push-ups',
-            'Pull-Up': 'Pull-Up',
-            'Standing Cable Fly': 'Push-Up',
-            'Standing Calf Raise': 'Bodyweight Calf Raise',
-            'Kneeling Cable Crunch': 'Decline Sit-up',
-            'Walking Lunges': 'Walking Lunges',
-            'Seated Cable Row': 'Pull-Up',
-            'Face Pulls': 'Pull-Up',
-            'Goblet Squat': 'Pistol Squat',
-            'Dumbbell Bench Press': 'Push-Up',
-            'Dumbbell Row': 'Pull-Up',
-            'Dumbbell Romanian Deadlift': 'Glute Bridge',
-            'Dumbbell Lateral Raise': 'Pike Push-ups',
-            'Incline Dumbbell Press': 'Decline Push-up',
-            'Incline Dumbbell Bicep Curl': 'Chin-up',
-            'Seated Dumbbell Press': 'Pike Push-ups',
-            'Single-Arm Dumbbell Row': 'Pull-Up',
-            'Dumbbell Hip Thrust': 'Glute Bridge',
-            'Dumbbell Calf Raise': 'Bodyweight Calf Raise',
-            'Weighted Crunch': 'Decline Sit-up',
-            'Dumbbell Lunges': 'Walking Lunges',
-            'Tricep Overhead Extension (Dumbbell)': 'Diamond Push-ups',
-            'Dumbbell Skull Crusher': 'Diamond Push-ups',
-            'Dumbbell Bulgarian Split Squat': 'Pistol Squat',
-            'Dumbbell Wrist Curl': 'Dead Hangs',
-          };
-          workouts.forEach(wo => {
-            wo.exercises = wo.exercises.map(ex => {
-              const replacement = bwNameMap[ex.name] || 'Push-Up';
-              return mapToWorkoutExercise(replacement, ex.targetSets, ex.targetReps);
-            });
-          });
-        }
+
+          return { id: `wo-${tmpl.id}-${Date.now()}`, name: tmpl.name, exercises };
+        });
 
         const generated: Program = {
           id: `program-${level.toLowerCase()}-${freq}d-${Date.now()}`,
